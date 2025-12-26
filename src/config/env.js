@@ -34,7 +34,7 @@ const config = {
 
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000, // 15 minutes
-  RATE_LIMIT_MAX_REQUESTS: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (config.NODE_ENV === 'development' ? 1000 : 100), // Higher limit for development
+  RATE_LIMIT_MAX_REQUESTS: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || ((process.env.NODE_ENV || 'development') === 'development' ? 1000 : 100), // Higher limit for development
 };
 
 module.exports = config;

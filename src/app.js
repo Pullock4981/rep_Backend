@@ -15,9 +15,26 @@ const app = express();
 app.use(helmet());
 
 // CORS configuration
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    config.CORS_ORIGIN,
+].filter(Boolean); // Remove undefined values
+
 app.use(
     cors({
-        origin: ['http://localhost:5173', config.CORS_ORIGIN],
+        origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
+            
+            // Allow if origin is in allowed list or if in development
+            if (allowedOrigins.includes(origin) || config.NODE_ENV === 'development') {
+                callback(null, true);
+            } else {
+                // In production, allow specific origins
+                callback(null, true); // For now, allow all origins - update this for production
+            }
+        },
         credentials: true,
     })
 );

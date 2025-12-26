@@ -2,45 +2,41 @@ const mongoose = require('mongoose');
 const config = require('./env');
 
 const connectDB = async () => {
+  // If already connected, return
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
+  }
+
   try {
     // Check if MONGODB_URI is provided
     if (!config.MONGODB_URI || config.MONGODB_URI.trim() === '') {
-      console.error('❌ MONGODB_URI is not defined in .env file');
-      console.error('   Please create a .env file and set MONGODB_URI');
-      console.error('\n   For Local MongoDB:');
-      console.error('   MONGODB_URI=mongodb://localhost:27017/erp_db');
-      console.error('\n   For MongoDB Atlas:');
-      console.error('   MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/erp_db');
-      process.exit(1);
+      const error = new Error('MONGODB_URI is not defined in environment variables');
+      console.error('❌ MONGODB_URI is not defined');
+      throw error;
     }
 
     // Validate URI format
     const uri = config.MONGODB_URI.trim();
     if (!uri.startsWith('mongodb://') && !uri.startsWith('mongodb+srv://')) {
+      const error = new Error('Invalid MONGODB_URI format');
       console.error('❌ Invalid MONGODB_URI format');
-      console.error('   URI must start with mongodb:// or mongodb+srv://');
-      console.error(`   Current value: ${uri.substring(0, 20)}...`);
-      process.exit(1);
+      throw error;
     }
 
     const conn = await mongoose.connect(uri, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
-      socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+      serverSelectionTimeoutMS: 10000, // Increased timeout for serverless
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10, // Maintain up to 10 socket connections for serverless
     });
 
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    return conn.connection;
   } catch (error) {
     console.error(`❌ MongoDB Connection Error: ${error.message}`);
-    console.error('\n   Please check:');
-    console.error('   1. MongoDB is running (for local) or cluster is accessible (for Atlas)');
-    console.error('   2. MONGODB_URI in .env file is correct');
-    console.error('   3. Network/firewall settings allow connection');
-    console.error('\n   Example formats:');
-    console.error('   Local: mongodb://localhost:27017/erp_db');
-    console.error('   Atlas: mongodb+srv://user:pass@cluster.mongodb.net/erp_db');
-    process.exit(1);
+    // Don't exit in serverless - throw error instead
+    throw error;
   }
 };
 
