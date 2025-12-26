@@ -1,69 +1,120 @@
-const mongoose = require('mongoose');
-const app = require('../src/app');
-const config = require('../src/config/env');
+// Vercel serverless function handler
+// Wrap everything in try-catch to prevent crashes on module load
 
-// Cache connection state
-let isConnecting = false;
-let connectionPromise = null;
+let app;
+let mongoose;
+let config;
 
-async function ensureDatabaseConnection() {
+try {
+  mongoose = require('mongoose');
+  app = require('../src/app');
+  config = require('../src/config/env');
+} catch (error) {
+  console.error('Failed to load modules:', error);
+  module.exports = async (req, res) => {
+    res.status(500).json({
+      success: false,
+      error: 'Server configuration error',
+      message: error.message,
+    });
+  };
+  return;
+}
+
+// Global connection state
+let dbConnected = false;
+let connectionAttempted = false;
+
+// Connect to database function
+async function connectDB() {
   // If already connected, return
-  if (mongoose.connection.readyState === 1) {
+  if (dbConnected && mongoose.connection.readyState === 1) {
     return mongoose.connection;
   }
 
-  // If already connecting, return the existing promise
-  if (isConnecting && connectionPromise) {
-    return connectionPromise;
+  // Prevent multiple simultaneous connection attempts
+  if (connectionAttempted && !dbConnected) {
+    return null;
   }
 
-  isConnecting = true;
-  connectionPromise = (async () => {
-    try {
-      // Check if MONGODB_URI is provided
-      if (!config.MONGODB_URI || config.MONGODB_URI.trim() === '') {
-        console.error('❌ MONGODB_URI is not defined');
-        isConnecting = false;
-        return null;
-      }
+  connectionAttempted = true;
 
-      // Validate URI format
-      const uri = config.MONGODB_URI.trim();
-      if (!uri.startsWith('mongodb://') && !uri.startsWith('mongodb+srv://')) {
-        console.error('❌ Invalid MONGODB_URI format');
-        isConnecting = false;
-        return null;
-      }
-
-      // Connect to MongoDB
-      const conn = await mongoose.connect(uri, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-        serverSelectionTimeoutMS: 10000,
-        socketTimeoutMS: 45000,
-        maxPoolSize: 10,
-      });
-
-      isConnecting = false;
-      console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-      return conn.connection;
-    } catch (error) {
-      console.error(`❌ MongoDB Connection Error: ${error.message}`);
-      isConnecting = false;
+  try {
+    // Check MONGODB_URI
+    if (!config.MONGODB_URI || !config.MONGODB_URI.trim()) {
+      console.error('❌ MONGODB_URI is not defined in environment variables');
       return null;
     }
-  })();
 
-  return connectionPromise;
+    const uri = config.MONGODB_URI.trim();
+    
+    if (!uri.startsWith('mongodb://') && !uri.startsWith('mongodb+srv://')) {
+      console.error('❌ Invalid MONGODB_URI format');
+      return null;
+    }
+
+    // Connect
+    await mongoose.connect(uri, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+    });
+
+    dbConnected = true;
+    console.log('✅ MongoDB Connected');
+    return mongoose.connection;
+  } catch (error) {
+    console.error('❌ MongoDB Connection Error:', error.message);
+    dbConnected = false;
+    connectionAttempted = false;
+    return null;
+  }
 }
 
 // Vercel serverless function handler
 module.exports = async (req, res) => {
-  // Ensure database connection (non-blocking, will use cached connection)
-  ensureDatabaseConnection().catch((err) => {
-    console.error('DB connection error:', err);
-  });
+  try {
+    // Try to connect to database (non-blocking, won't fail the request)
+    connectDB().catch(err => {
+      console.error('DB connection attempt failed:', err.message);
+    });
 
-  // Handle request with Express app
-  return app(req, res);
+    // Handle request with Express app
+    // Use a promise to properly handle async Express middleware
+    return new Promise((resolve, reject) => {
+      const handler = (err) => {
+        if (err) {
+          console.error('Express handler error:', err);
+          if (!res.headersSent) {
+            res.status(500).json({
+              success: false,
+              error: 'Request handling error',
+              message: err.message,
+            });
+          }
+          reject(err);
+        } else {
+          resolve();
+        }
+      };
+
+      // Call Express app
+      app(req, res, handler);
+    });
+  } catch (error) {
+    console.error('Handler error:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Send error response if headers not sent
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+        message: error.message || 'An error occurred',
+        hint: 'Check Vercel logs. Ensure MONGODB_URI and JWT_SECRET are set in environment variables.',
+      });
+    }
+  }
 };
