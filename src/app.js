@@ -67,6 +67,20 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Root route
+app.get('/', (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'ERP Backend API is running',
+        version: '1.0.0',
+        endpoints: {
+            health: '/health',
+            api: '/api/v1',
+            test: '/api/v1/test',
+        },
+    });
+});
+
 // Legacy route support for frontend compatibility (must be before /api/v1)
 const authController = require('./controllers/authController');
 const { protect } = require('./middleware/auth');
